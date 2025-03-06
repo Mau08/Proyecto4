@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pioneros</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Arial', sans-serif;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #87CEEB;
+            overflow: hidden;
+        }
+        .game-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            padding: 20px;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            color: #fff;
+            text-shadow: 2px 2px 4px #000;
+        }
+        h1 {
+            font-size: 2rem;
+        }
+        .stats span {
+            margin-left: 20px;
+            font-size: 1.2rem;
+        }
+        #gameCanvas {
+            width: 100%;
+            height: 400px;
+            background: #1E90FF;
+            border: 5px solid #FFD700;
+            border-radius: 10px;
+            display: block;
+        }
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 215, 0, 0.9);
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            display: none;
+        }
+        #gameOver h2 {
+            color: #fff;
+            margin-bottom: 20px;
+            text-shadow: 1px 1px 2px #000;
+        }
+        #gameOver button {
+            padding: 10px 20px;
+            font-size: 1.2rem;
+            background: #FF4500;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        #gameOver button:hover {
+            background: #FF6347;
+        }
+        @media (max-width: 600px) {
+            h1 { font-size: 1.5rem; }
+            .stats span { font-size: 1rem; }
+            #gameCanvas { height: 300px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <header>
+            <h1>Pioneros</h1>
+            <div class="stats">
+                <span id="score">Puntaje: 0</span>
+                <span id="lives">Vidas: 1</span>
+            </div>
+        </header>
+        <canvas id="gameCanvas"></canvas>
+        <div id="gameOver">
+            <h2>¡Game Over!</h2>
+            <p>Puntaje final: <span id="finalScore"></span></p>
+            <button id="restartButton">Reiniciar</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score');
+        const livesDisplay = document.getElementById('lives');
+        const gameOverScreen = document.getElementById('gameOver');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const restartButton = document.getElementById('restartButton');
+
+        canvas.width = canvas.offsetWidth;
+        canvas.height = canvas.offsetHeight;
+
+        let gameState = 'playing';
+        let score = 0;
+        let lives = 1; // Solo una vida
+        let vikingY = canvas.height / 2;
+        let vikingSpeed = 5; // Velocidad inicial
+        const obstacles = [];
+        const treasures = [];
+        let waveOffset = 0;
+
+        // Quitar música (funciones vacías)
+        function startMusic() {}
+        function stopMusic() {}
+
+        // Sonido al recolectar tesoro
+        function playSound() {
+            const audio = new AudioContext();
+            const oscillator = audio.createOscillator();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(500, audio.currentTime);
+            oscillator.connect(audio.destination);
+            oscillator.start();
+            oscillator.stop(audio.currentTime + 0.1);
+        }
+
+        // Barco basado en el ícono proporcionado, con ancho reducido
+        const viking = {
+            x: 50,
+            y: vikingY,
+            width: 40, // Mantiene el ancho reducido a 40
+            height: 100,
+            draw() {
+                // Fondo rojo
+                ctx.fillStyle = '#FF0000';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                // Círculo negro con punto blanco
+                ctx.fillStyle = '#000000';
+                ctx.beginPath();
+                ctx.arc(this.x + this.width / 2, this.y + this.height / 2, 18, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#FFFFFF';
+                ctx.beginPath();
+                ctx.arc(this.x + this.width / 2, this.y + this.height / 2, 3, 0, Math.PI * 2);
+                ctx.fill();
+                // Barra negra vertical
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(this.x + this.width / 2 - 6, this.y, 12, this.height);
+                // Bordes blancos
+                ctx.strokeStyle = '#FFFFFF';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(this.x, this.y, this.width, this.height);
+                ctx.beginPath();
+                ctx.arc(this.x + this.width / 2, this.y + this.height / 2, 18, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        };
+
+        // Clase para obstáculos (rocas) y tesoros (cofres)
+        class GameObject {
+            constructor(x, y, width, height, speed, type) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.speed = speed;
+                this.type = type;
+            }
+            draw() {
+                if (this.type === 'rock') {
+                    ctx.fillStyle = '#696969'; // Rocas grises que quitan vida
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x + this.width / 2, this.y - 10);
+                    ctx.lineTo(this.x + this.width, this.y);
+                    ctx.lineTo(this.x + this.width + 5, this.y + this.height);
+                    ctx.lineTo(this.x - 5, this.y + this.height);
+                    ctx.fill();
+                } else if (this.type === 'treasure') {
+                    ctx.fillStyle = '#FFD700'; // Cofres dorados que dan puntos
+                    ctx.fillRect(this.x, this.y, this.width, this.height);
+                    ctx.fillStyle = '#DAA520';
+                    ctx.fillRect(this.x + 2, this.y + this.height / 2, this.width - 4, 2);
+                }
+            }
+            update() {
+                this.x -= this.speed;
+            }
+        }
+
+        // Generar objetos aleatorios con proporción 6:1 (rocas:tesoros)
+        function spawnObject() {
+            const y = Math.random() * (canvas.height - 50);
+            if (Math.random() < 0.857) { // 85.7% de probabilidad para rocas (6/7)
+                obstacles.push(new GameObject(canvas.width, y, 40, 40, 3 + vikingSpeed / 2, 'rock'));
+            } else { // 14.3% de probabilidad para tesoros (1/7)
+                treasures.push(new GameObject(canvas.width, y, 25, 20, 3 + vikingSpeed / 2, 'treasure'));
+            }
+        }
+
+        // Detectar colisiones
+        function checkCollision(obj1, obj2) {
+            return obj1.x < obj2.x + obj2.width &&
+                   obj1.x + obj1.width > obj2.x &&
+                   obj1.y < obj2.y + obj2.height &&
+                   obj1.y + obj1.height > obj2.y;
+        }
+
+        // Pausar el juego
+        function pauseGame() {
+            gameState = 'paused';
+            setTimeout(() => {
+                if (lives > 0) {
+                    gameState = 'playing';
+                    gameLoop();
+                }
+            }, 3000); // Pausa de 3 segundos
+        }
+
+        // Controles
+        document.addEventListener('keydown', (e) => {
+            if (gameState !== 'playing') return;
+            if (e.key === 'ArrowUp' && viking.y > 0) viking.y -= vikingSpeed;
+            if (e.key === 'ArrowDown' && viking.y < canvas.height - viking.height) viking.y += vikingSpeed;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (gameState !== 'playing') return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            viking.y = touch.clientY - canvas.offsetTop - viking.height / 2;
+            if (viking.y < 0) viking.y = 0;
+            if (viking.y > canvas.height - viking.height) viking.y = canvas.height - viking.height;
+        });
+
+        // Dibujar olas
+        function drawWaves() {
+            ctx.strokeStyle = '#4682B4';
+            ctx.lineWidth = 2;
+            for (let y = 0; y < canvas.height; y += 20) {
+                ctx.beginPath();
+                for (let x = 0; x < canvas.width; x += 10) {
+                    const waveY = y + Math.sin((x + waveOffset) * 0.05) * 5;
+                    ctx.lineTo(x, waveY);
+                }
+                ctx.stroke();
+            }
+            waveOffset += 1;
+        }
+
+        // Lógica del juego
+        function gameLoop() {
+            if (gameState !== 'playing') return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawWaves();
+            viking.draw();
+
+            // Aumentar velocidad más lentamente
+            vikingSpeed += 0.01; // Reducido de 0.02 a 0.01 para acelerar más despacio
+            if (Math.random() < 0.05) spawnObject(); // Aumentada la frecuencia de generación a 0.05 (antes 0.02)
+
+            obstacles.forEach((obs, i) => {
+                obs.update();
+                obs.draw();
+                if (checkCollision(viking, obs)) {
+                    lives--;
+                    obstacles.splice(i, 1);
+                    livesDisplay.textContent = `Vidas: ${lives}`;
+                    if (lives <= 0) {
+                        endGame();
+                    } else {
+                        pauseGame();
+                    }
+                }
+                if (obs.x < -obs.width) obstacles.splice(i, 1);
+            });
+
+            treasures.forEach((treasure, i) => {
+                treasure.update();
+                treasure.draw();
+                if (checkCollision(viking, treasure)) {
+                    score += 1; // Puntaje de uno en uno
+                    treasures.splice(i, 1);
+                    scoreDisplay.textContent = `Puntaje: ${score}`;
+                    playSound();
+                }
+                if (treasure.x < -treasure.width) treasures.splice(i, 1);
+            });
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Iniciar juego
+        function startGame() {
+            gameState = 'playing';
+            gameOverScreen.style.display = 'none';
+            score = 0;
+            lives = 1; // Solo una vida
+            vikingSpeed = 5; // Velocidad inicial
+            obstacles.length = 0;
+            treasures.length = 0;
+            scoreDisplay.textContent = `Puntaje: ${score}`;
+            livesDisplay.textContent = `Vidas: ${lives}`;
+            gameLoop();
+        }
+
+        // Terminar juego
+        function endGame() {
+            gameState = 'gameOver';
+            gameOverScreen.style.display = 'block';
+            finalScoreDisplay.textContent = score;
+        }
+
+        restartButton.addEventListener('click', startGame);
+        startGame(); // Inicio inmediato
+    </script>
+</body>
+</html>
